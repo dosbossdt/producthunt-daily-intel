@@ -18,6 +18,7 @@ ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 GOOGLE_CREDENTIALS_JSON = os.environ["GOOGLE_CREDENTIALS_JSON"]
 GOOGLE_DRIVE_FOLDER_ID = os.environ["GOOGLE_DRIVE_FOLDER_ID"]
 SLACK_WEBHOOK_URL = os.environ["SLACK_WEBHOOK_URL"]
+OWNER_EMAIL = "dylan@pinnacleoddsdropper.com"
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -125,7 +126,7 @@ def upload_to_drive(product_name: str, spec_content: str) -> str:
     creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
     credentials = service_account.Credentials.from_service_account_info(
         creds_dict,
-        scopes=["https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/documents"]
+        scopes=["https://www.googleapis.com/auth/drive"]
     )
     drive_service = build("drive", "v3", credentials=credentials)
 
@@ -143,7 +144,26 @@ def upload_to_drive(product_name: str, spec_content: str) -> str:
             "mimeType": "application/vnd.google-apps.document"
         }
         media = MediaFileUpload(temp_path, mimetype="text/markdown", resumable=True)
-        file = drive_service.files().create(body=file_metadata, media_body=media, fields="id, webViewLink").execute()
+        file = drive_service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields="id, webViewLink",
+            supportsAllDrives=True
+        ).execute()
+
+        # Transfer ownership to Dylan so the file uses his quota, not the service account's
+        drive_service.permissions().create(
+            fileId=file["id"],
+            body={
+                "type": "user",
+                "role": "owner",
+                "emailAddress": OWNER_EMAIL
+            },
+            transferOwnership=True,
+            supportsAllDrives=True
+        ).execute()
+        print(f"Transferred ownership to {OWNER_EMAIL}")
+
         doc_url = file.get("webViewLink", f"https://docs.google.com/document/d/{file['id']}")
         print(f"Uploaded: {doc_url}")
         return doc_url
