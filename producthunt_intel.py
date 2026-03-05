@@ -27,47 +27,50 @@ INITIAL_RETRY_DELAY = 60  # Start with 60 seconds
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-SYSTEM_PROMPT = """You are an expert product analyst specializing in reverse engineering SaaS products and analyzing user feedback.
+SYSTEM_PROMPT = """You are an expert product analyst and product architect. Your job is to reverse-engineer a successful SaaS product from ProductHunt, deeply understand its users' pain points, and then produce a complete product specification for building an improved clone of that product.
+
+The clone should replicate the core functionality of the original product but be designed from the ground up to address unmet user needs surfaced in ProductHunt comments and reviews.
 
 IMPORTANT OUTPUT FORMAT RULES:
 1. Do NOT include your thinking process, reasoning, or search narration in your final output
 2. Do NOT write things like "Let me search for..." or "I found that..."
 3. Your ONLY output should be the final product specification document in clean Markdown
-4. Start your output directly with the H1 title: # [Product Name] - Product Specification
+4. Start your output directly with the H1 title: # Clone of [Original Product Name] - Product Specification
 
 Your output must be a complete product specification in Markdown with these 12 sections:
 
-# [Product Name] - Product Specification
+# Clone of [Original Product Name] - Product Specification
 
 ## 1. Executive Summary
-- **Product Name:** [name]
-- **One-liner:** [description]
-- **Target User:** [who]
-- **Value Proposition:** [why]
-- **Product URL:** [url]
-- **ProductHunt URL:** [url]
+- **Clone Product Name:** Clone of [Original Product Name]
+- **Original Product:** [name and one-liner description of the original]
+- **Original Product URL:** [url]
+- **Original ProductHunt URL:** [url]
+- **Target User:** [who this clone is for — same audience as original]
+- **Core Value Proposition:** [what the original does well that this clone replicates]
+- **Clone Differentiator:** [1-2 sentence summary of the key enhancement this clone adds over the original, derived from user pain points]
 - **Analysis Date:** [date]
 
-## 2. Product Overview
-[problem, solution, differentiators]
+## 2. Original Product Analysis
+[Thorough breakdown of the original product: what problem it solves, how it works, its core features, its strengths, and its weaknesses. This section sets the foundation — you are deconstructing the original so it can be faithfully rebuilt and improved.]
 
 ## 3. User Personas & Jobs-to-be-Done
-[personas and JTBD]
+[Personas and JTBD derived from the original product's user base. These should reflect the real users commenting on ProductHunt and using the original product.]
 
 ## 4. Feature Specification
-[core features with user stories, inputs/outputs, business rules]
+[Core features the clone must replicate from the original product. For each feature include user stories, inputs/outputs, and business rules. This should cover everything needed to reach feature parity with the original.]
 
 ## 5. Technical Architecture
-[recommended tech stack with rationale, data model, API endpoints]
+[Recommended tech stack with rationale, data model, API endpoints. This is for the clone — design it as a greenfield build informed by what the original does.]
 
 ## 6. User Flows
-[critical journeys with success/error states]
+[Critical user journeys the clone must support, mirroring the original product's key workflows. Include success and error states.]
 
 ## 7. UI/UX Specification
-[key screens, design system notes]
+[Key screens the clone needs, design system notes. Reference the original product's UX patterns where appropriate — note what works well and should be kept, and what could be improved.]
 
 ## 8. Non-Functional Requirements
-[performance, security, scalability, accessibility]
+[Performance, security, scalability, accessibility targets for the clone.]
 
 ## 9. Implementation Roadmap (Claude Code Optimized)
 This roadmap is specifically designed for AI agent implementation (Claude Code). Each phase MUST be:
@@ -85,46 +88,55 @@ Format each phase as:
 Break the implementation into 10-20 small phases. Err on the side of MORE phases with LESS scope each.
 Example phase sizes: "Set up project structure and dependencies", "Create user data model", "Build login API endpoint", "Add input validation to login", "Create login form component", "Connect login form to API", "Add error handling to login flow"
 
-IMPORTANT: The final phases of the roadmap MUST implement the Enhancement from Section 12 (the pain point solution). After completing the core product phases, add as many additional phases as needed to fully implement the enhancement feature. Apply the same sizing rules - each phase must be completable within 100k tokens of context. Label these phases clearly as "Enhancement Phase X" so they are distinguishable from core product phases.
+IMPORTANT: The final phases of the roadmap MUST implement the Enhancement from Section 12 (the pain point solution). After completing the core clone phases, add as many additional phases as needed to fully implement the enhancement feature. Apply the same sizing rules — each phase must be completable within 100k tokens of context. Label these phases clearly as "Enhancement Phase X" so they are distinguishable from core clone phases.
 
 ## 10. Open Questions & Assumptions
-[questions and assumptions]
+[Questions and assumptions relevant to building the clone.]
 
 ## 11. Competitive Context
-[competitor comparison table, market positioning]
+[How the original product sits in its competitive landscape. Include a competitor comparison table showing the original product vs 2-3 competitors. Note where the clone, with its enhancement, would be positioned.]
 
 ## 12. Enhancement: Pain Point Solution
-[from ProductHunt comments - source quote, frequency, proposed feature with user story, technical approach, UI changes]
+[This is the clone's key differentiator. From ProductHunt comments and reviews of the original product, identify the highest-priority UNADDRESSED pain point. Include:
+- Direct source quotes from ProductHunt comments showing the pain point
+- Frequency/severity assessment
+- Proposed feature that addresses this pain point (with user story)
+- Technical approach for implementing it
+- UI/UX changes needed
+This enhancement is what justifies the clone's existence — it solves a real problem the original product has not addressed.]
 
-Be comprehensive enough that someone could build the product from your spec."""
+Be comprehensive enough that someone could build the clone from your spec."""
 
 USER_PROMPT_TEMPLATE = """Today's date is {date}.
 
-Analyze ProductHunt's Product of the Day and create a comprehensive product specification.
+Your task: Find today's #1 Product of the Day on ProductHunt, reverse-engineer it, and write a complete product specification for building an improved CLONE of that product.
 
 ## Instructions
 
-1. **Find Product of the Day**: Search ProductHunt for today's #1 Product of the Day (or yesterday's if today's winner hasn't been announced - winners are announced ~3pm PT / 11pm GMT). If #1 has insufficient info, use #2, then #3, and so on.
+1. **Find Product of the Day**: Search ProductHunt for today's #1 Product of the Day (or yesterday's if today's winner hasn't been announced — winners are announced ~3pm PT / 11pm GMT). If #1 has insufficient info, use #2, then #3, and so on.
 
-2. **Research thoroughly**:
-   - Product's official website (features, pricing)
+2. **Research the original product thoroughly**:
+   - Product's official website (features, pricing, how it works)
    - ProductHunt page and ALL comments
    - 2-3 direct competitors
    - Tech blogs, reviews, job postings (for tech stack signals)
 
-3. **Analyze pain points** from ProductHunt comments:
+3. **Analyze pain points** from ProductHunt comments on the original product:
    - Feature requests
    - Complaints and concerns
    - "I wish it could..." statements
    - Workarounds users mention
-   - Select the highest-priority UNADDRESSED pain point
+   - Select the highest-priority UNADDRESSED pain point — this becomes the clone's key differentiator
 
-4. **Generate the full 12-section specification**
+4. **Generate the full 12-section specification** for the clone:
+   - The clone is called "Clone of [Original Product Name]"
+   - The clone replicates the original product's core functionality
+   - The clone adds an enhancement (Section 12) that addresses the top user pain point
+   - Reference the original product by name throughout, link to its URLs, and explain what you are replicating and why
 
 CRITICAL: Your response must ONLY contain the final Markdown specification document.
-- Start directly with: # [Product Name] - Product Specification
+- Start directly with: # Clone of [Original Product Name] - Product Specification
 - Do NOT include any thinking, reasoning, or search narration
-- Do NOT write "Let me search..." or "I found..." or similar phrases
 - Output ONLY the clean, formatted specification document"""
 
 
@@ -154,27 +166,33 @@ def extract_product_info(spec_content: str) -> tuple[str, str]:
     product_url = ""
 
     # Try multiple patterns to find the product name
-    # Pattern 1: # Product Name - Product Specification
-    title_match = re.search(r'^#\s+(.+?)\s*-\s*Product Specification', spec_content, re.MULTILINE)
+    # Pattern 1: # Clone of Product Name - Product Specification
+    title_match = re.search(r'^#\s+Clone of\s+(.+?)\s*-\s*Product Specification', spec_content, re.MULTILINE)
     if title_match:
-        product_name = title_match.group(1).strip()
+        product_name = f"Clone of {title_match.group(1).strip()}"
 
-    # Pattern 2: **Product Name:** value
+    # Pattern 2: **Clone Product Name:** value
     if product_name == "Unknown Product":
-        name_match = re.search(r'\*\*Product Name:\*\*\s*(.+?)(?:\n|$)', spec_content)
+        name_match = re.search(r'\*\*Clone Product Name:\*\*\s*(.+?)(?:\n|$)', spec_content)
         if name_match:
             product_name = name_match.group(1).strip()
 
-    # Pattern 3: First H1 heading
+    # Pattern 3: **Original Product:** value (fallback — prefix with "Clone of")
+    if product_name == "Unknown Product":
+        name_match = re.search(r'\*\*Original Product:\*\*\s*(.+?)(?:\n|$)', spec_content)
+        if name_match:
+            original = name_match.group(1).strip()
+            product_name = f"Clone of {original}"
+
+    # Pattern 4: First H1 heading
     if product_name == "Unknown Product":
         h1_match = re.search(r'^#\s+(.+?)(?:\n|$)', spec_content, re.MULTILINE)
         if h1_match:
             product_name = h1_match.group(1).strip()
-            # Clean up if it has " - Product Specification" suffix
             product_name = re.sub(r'\s*-\s*Product Specification.*$', '', product_name)
 
-    # Extract product URL
-    url_match = re.search(r'\*\*Product URL:\*\*\s*(https?://[^\s\n]+)', spec_content)
+    # Extract original product URL
+    url_match = re.search(r'\*\*Original Product URL:\*\*\s*(https?://[^\s\n]+)', spec_content)
     if url_match:
         product_url = url_match.group(1).strip()
 
@@ -223,10 +241,13 @@ def get_analyzed_products() -> list[str]:
         ).execute()
         
         for file in response.get("files", []):
-            # Extract product name from filename format: "YYYY-MM-DD - Product Name"
+            # Extract product name from filename format: "YYYY-MM-DD - Clone of Product Name"
             match = re.match(r'^\d{4}-\d{2}-\d{2}\s*-\s*(.+)$', file["name"])
             if match:
-                analyzed_products.append(match.group(1).strip())
+                name = match.group(1).strip()
+                # Strip "Clone of " prefix for exclusion matching against original names
+                original_name = re.sub(r'^Clone of\s+', '', name, flags=re.IGNORECASE)
+                analyzed_products.append(original_name)
         
         page_token = response.get("nextPageToken")
         if not page_token:
@@ -336,7 +357,7 @@ def send_slack_notification(success: bool, product_name: str = "", doc_url: str 
             ]
         }
         if product_url:
-            payload["blocks"].append({"type": "section", "text": {"type": "mrkdwn", "text": f"🔗 <{product_url}|Visit Product>"}})
+            payload["blocks"].append({"type": "section", "text": {"type": "mrkdwn", "text": f"🔗 <{product_url}|Visit Original Product>"}})
     else:
         payload = {
             "blocks": [
