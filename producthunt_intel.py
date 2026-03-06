@@ -25,6 +25,9 @@ SLACK_WEBHOOK_URL = os.environ["SLACK_WEBHOOK_URL"]
 MAX_RETRIES = 5
 INITIAL_RETRY_DELAY = 60  # Start with 60 seconds
 
+# Continuation configuration
+MAX_CONTINUATIONS = 3  # Max times to continue a truncated response
+
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 SYSTEM_PROMPT = """You are an expert product analyst and product architect. Your job is to reverse-engineer a successful SaaS product from ProductHunt, deeply understand its users' pain points, and then produce a complete product specification for building an improved clone of that product.
@@ -140,13 +143,13 @@ CRITICAL: Your response must ONLY contain the final Markdown specification docum
 - Output ONLY the clean, formatted specification document"""
 
 
-def call_claude_with_retry(messages: list, system: str) -> anthropic.types.Message:
+def call_claude_with_retry(messages: list, system: str, max_tokens: int = 64000) -> anthropic.types.Message:
     """Call Claude API with automatic retry on rate limit errors."""
     for attempt in range(MAX_RETRIES):
         try:
             return client.messages.create(
                 model="claude-sonnet-4-20250514",
-                max_tokens=16000,
+                max_tokens=max_tokens,
                 tools=[{"type": "web_search_20250305", "name": "web_search"}],
                 system=system,
                 messages=messages
@@ -219,17 +222,17 @@ def clean_spec_content(content: str) -> str:
 def get_analyzed_products() -> list[str]:
     """Fetch list of already-analyzed product names from Google Drive."""
     print("Checking previously analyzed products...")
-    
+
     creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
     credentials = service_account.Credentials.from_service_account_info(
         creds_dict,
         scopes=["https://www.googleapis.com/auth/drive.readonly"]
     )
     drive_service = build("drive", "v3", credentials=credentials)
-    
+
     analyzed_products = []
     page_token = None
-    
+
     while True:
         response = drive_service.files().list(
             q=f"'{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false",
@@ -239,7 +242,7 @@ def get_analyzed_products() -> list[str]:
             supportsAllDrives=True,
             includeItemsFromAllDrives=True
         ).execute()
-        
+
         for file in response.get("files", []):
             # Extract product name from filename format: "YYYY-MM-DD - Clone of Product Name"
             match = re.match(r'^\d{4}-\d{2}-\d{2}\s*-\s*(.+)$', file["name"])
@@ -248,11 +251,11 @@ def get_analyzed_products() -> list[str]:
                 # Strip "Clone of " prefix for exclusion matching against original names
                 original_name = re.sub(r'^Clone of\s+', '', name, flags=re.IGNORECASE)
                 analyzed_products.append(original_name)
-        
+
         page_token = response.get("nextPageToken")
         if not page_token:
             break
-    
+
     print(f"Found {len(analyzed_products)} previously analyzed products")
     return analyzed_products
 
@@ -276,6 +279,7 @@ The following products have already been analyzed. Skip them and choose the next
     messages = [{"role": "user", "content": user_prompt}]
 
     response = call_claude_with_retry(messages, SYSTEM_PROMPT)
+    print(f"  Response stop_reason: {response.stop_reason}")
 
     while response.stop_reason == "tool_use":
         messages.append({"role": "assistant", "content": response.content})
@@ -290,15 +294,52 @@ The following products have already been analyzed. Skip them and choose the next
                 })
         messages.append({"role": "user", "content": tool_results})
         response = call_claude_with_retry(messages, SYSTEM_PROMPT)
+        print(f"  Response stop_reason: {response.stop_reason}")
 
     # Collect all text content from the response
     raw_content = "".join(block.text for block in response.content if hasattr(block, "text"))
+
+    # Handle truncated responses — if stop_reason is max_tokens, continue generation
+    continuation_count = 0
+    while response.stop_reason == "max_tokens" and continuation_count < MAX_CONTINUATIONS:
+        continuation_count += 1
+        print(f"  Response was truncated (max_tokens). Continuing generation ({continuation_count}/{MAX_CONTINUATIONS})...")
+
+        # Append the partial assistant response and ask Claude to continue
+        messages.append({"role": "assistant", "content": response.content})
+        messages.append({"role": "user", "content": "Continue exactly where you left off. Do not repeat any content."})
+
+        response = call_claude_with_retry(messages, SYSTEM_PROMPT)
+        print(f"  Continuation stop_reason: {response.stop_reason}")
+
+        # Append the new text content
+        continuation_text = "".join(block.text for block in response.content if hasattr(block, "text"))
+        raw_content += continuation_text
+
+    if continuation_count > 0:
+        print(f"  Completed after {continuation_count} continuation(s)")
+
+    # Log content size for debugging
+    print(f"  Raw content length: {len(raw_content)} chars")
+
+    # Validate that we have meaningful content
+    if not raw_content or len(raw_content.strip()) < 500:
+        raise ValueError(
+            f"Analysis produced insufficient content ({len(raw_content.strip())} chars). "
+            f"stop_reason was '{response.stop_reason}'. "
+            f"This likely means the model ran out of output tokens before generating the specification. "
+            f"Response had {len(response.content)} content blocks."
+        )
 
     # Clean the content to remove any thinking/reasoning
     spec_content = clean_spec_content(raw_content)
 
     # Extract product info using improved parsing
     product_name, product_url = extract_product_info(spec_content)
+
+    # Validate product name was extracted
+    if product_name == "Unknown Product":
+        print(f"  WARNING: Could not extract product name from spec. First 200 chars: {spec_content[:200]}")
 
     print(f"Analysis complete for: {product_name}")
     return product_name, spec_content, product_url
