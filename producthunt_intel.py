@@ -144,16 +144,21 @@ CRITICAL: Your response must ONLY contain the final Markdown specification docum
 
 
 def call_claude_with_retry(messages: list, system: str, max_tokens: int = 64000) -> anthropic.types.Message:
-    """Call Claude API with automatic retry on rate limit errors."""
+    """Call Claude API with streaming and automatic retry on rate limit errors.
+
+    Uses streaming to avoid the 10-minute timeout limit on non-streaming requests
+    that can occur with large max_tokens values and web search tool usage.
+    """
     for attempt in range(MAX_RETRIES):
         try:
-            return client.messages.create(
+            with client.messages.stream(
                 model="claude-sonnet-4-20250514",
                 max_tokens=max_tokens,
                 tools=[{"type": "web_search_20250305", "name": "web_search"}],
                 system=system,
                 messages=messages
-            )
+            ) as stream:
+                return stream.get_final_message()
         except anthropic.RateLimitError as e:
             if attempt == MAX_RETRIES - 1:
                 raise  # Re-raise on final attempt
